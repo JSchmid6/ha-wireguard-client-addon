@@ -1,57 +1,57 @@
 # Home Assistant WireGuard Client Add-on
 
-Ein Custom Add-on um Home Assistant als WireGuard Client zu einem externen VPN-Server zu verbinden.
+A custom add-on that connects Home Assistant as a WireGuard VPN client to an external VPN server.
 
 ## Use Case
 
-Ideal für Home Assistant auf einem Raspberry Pi (oder ähnlichem), der sich per Outbound-VPN mit einem externen VPS verbindet. Typische Szenarien:
+Ideal for Home Assistant on a Raspberry Pi (or similar) that connects via outbound VPN to an external VPS. Typical scenarios:
 
-- **Kein Port-Forwarding / CGNAT** — Der Pi kann von außen nicht erreicht werden, baut aber selbst die VPN-Verbindung auf
-- **Remote-Zugriff auf das LAN** — Vom VPS (oder von unterwegs über den VPS) auf das lokale Netzwerk zugreifen (z.B. HA-Dashboard, NAS, Drucker)
-- **Der Pi bleibt lokal erreichbar** — Geräte im LAN können den Pi weiterhin direkt erreichen
+- **No port forwarding / CGNAT** — The Pi cannot be reached from the internet, but initiates the VPN connection itself
+- **Remote access to the LAN** — Access the local network from the VPS (or remotely via the VPS), e.g. HA dashboard, NAS, printers
+- **Pi stays locally accessible** — Devices on the LAN can still reach the Pi directly
 
-### Netzwerk-Architektur
+### Network Architecture
 
 ```
 Internet ← VPS (10.0.0.1) ←──WireGuard──→ RPi/HA (10.0.0.2) → LAN (192.168.1.0/24)
                                              ↑
-                                        Lokale Geräte greifen
-                                        weiterhin direkt zu
+                                        Local devices still
+                                        access directly
 ```
 
-**Wichtig:** `allowed_ips` auf dem Client (HA) sollte **nur** das VPN-Subnetz enthalten (`10.0.0.0/24`). Das Routing zum LAN konfigurierst du auf der **Server-Seite** (VPS), indem du dort `AllowedIPs = 10.0.0.2/32, 192.168.1.0/24` für den Peer setzt. So bleibt der lokale LAN-Zugriff auf den Pi bestehen.
+**Important:** `allowed_ips` on the client (HA) should contain **only** the VPN subnet (`10.0.0.0/24`). LAN routing is configured on the **server side** (VPS) by setting `AllowedIPs = 10.0.0.2/32, 192.168.1.0/24` for the peer. This keeps local LAN connectivity intact.
 
 ## Features
 
-- ✅ WireGuard als Client (outbound connection)
-- ✅ Kein Port-Forwarding notwendig
-- ✅ Automatischer Reconnect bei Verbindungsabbruch
-- ✅ Persistent nach Reboot
-- ✅ Graceful Shutdown (sauberes Herunterfahren der VPN-Verbindung)
-- ✅ Optionale DNS-Konfiguration
-- ✅ PresharedKey-Unterstützung für zusätzliche Sicherheit
-- ✅ NAT/Masquerading mit Auto-Erkennung des Netzwerk-Interfaces
-- ✅ MTU-Konfiguration
-- ✅ Multi-Architektur: amd64, aarch64, armv7, armhf, i386
+- ✅ WireGuard client (outbound connection)
+- ✅ No port forwarding required
+- ✅ Automatic reconnect on connection loss
+- ✅ Persistent across reboots
+- ✅ Graceful shutdown (clean VPN teardown)
+- ✅ Optional DNS configuration
+- ✅ PresharedKey support for additional security
+- ✅ NAT/Masquerading with auto-detected network interface
+- ✅ MTU configuration
+- ✅ Multi-architecture: amd64, aarch64, armv7, armhf, i386
 
 ## Installation
 
-1. Füge dieses Repository in Home Assistant hinzu:
-   - **Settings → Add-ons → Add-on Store → ⋮ (oben rechts) → Repositories**
-   - Repository-URL hinzufügen: `https://github.com/DEIN-USERNAME/ha-wireguard-client`
+1. Add this repository in Home Assistant:
+   - **Settings → Add-ons → Add-on Store → ⋮ (top right) → Repositories**
+   - Add repository URL: `https://github.com/DEIN-USERNAME/ha-wireguard-client`
 
-2. Installiere das **"WireGuard Client"** Add-on aus der Liste
+2. Install the **"WireGuard Client"** add-on from the list
 
-3. Konfiguriere das Add-on (siehe unten) und starte es
+3. Configure the add-on (see below) and start it
 
-## Konfiguration
+## Configuration
 
-### Vollständiges Beispiel
+### Full Example
 
 ```yaml
 interface:
   address: "10.0.0.2/24"
-  private_key: "DEIN_PRIVATE_KEY"
+  private_key: "YOUR_PRIVATE_KEY"
   dns: "1.1.1.1"
   mtu: 1420
 
@@ -60,18 +60,18 @@ peer:
   endpoint: "vpn.example.com:51820"
   allowed_ips: "10.0.0.0/24"
   persistent_keepalive: 25
-  preshared_key: "OPTIONALER_PRESHARED_KEY"
+  preshared_key: "OPTIONAL_PRESHARED_KEY"
 
 nat:
   enabled: true
 ```
 
-### Minimales Beispiel
+### Minimal Example
 
 ```yaml
 interface:
   address: "10.0.0.2/24"
-  private_key: "DEIN_PRIVATE_KEY"
+  private_key: "YOUR_PRIVATE_KEY"
 
 peer:
   public_key: "SERVER_PUBLIC_KEY"
@@ -80,78 +80,78 @@ peer:
   persistent_keepalive: 25
 ```
 
-### Optionen
+### Options
 
-| Option | Pflicht | Beschreibung |
-|--------|---------|-------------|
-| `interface.address` | ✅ | VPN-IP-Adresse mit Subnetzmaske (z.B. `10.0.0.2/24`) |
-| `interface.private_key` | ✅ | WireGuard Private Key des Clients |
-| `interface.dns` | ❌ | DNS-Server im VPN-Tunnel (z.B. `1.1.1.1, 8.8.8.8`) |
-| `interface.mtu` | ❌ | MTU-Wert (1280–1500, Standard: automatisch) |
-| `peer.public_key` | ✅ | WireGuard Public Key des Servers |
-| `peer.endpoint` | ✅ | Server-Adresse mit Port (z.B. `vpn.example.com:51820`) |
-| `peer.allowed_ips` | ✅ | Erlaubte IP-Bereiche (z.B. `10.0.0.0/24` — nur VPN-Subnetz!) |
-| `peer.persistent_keepalive` | ✅ | Keepalive-Intervall in Sekunden (empfohlen: `25`) |
-| `peer.preshared_key` | ❌ | Optionaler PresharedKey für zusätzliche Sicherheit |
-| `nat.enabled` | ✅ | NAT/Masquerading aktivieren (`true`/`false`, Standard: `false`) |
-| `nat.interface` | ❌ | Netzwerk-Interface für NAT (wird automatisch erkannt) |
+| Option | Required | Description |
+|--------|----------|-------------|
+| `interface.address` | ✅ | VPN IP address with subnet mask (e.g. `10.0.0.2/24`) |
+| `interface.private_key` | ✅ | WireGuard private key of the client |
+| `interface.dns` | ❌ | DNS server(s) for the VPN tunnel (e.g. `1.1.1.1`) |
+| `interface.mtu` | ❌ | MTU value (1280–1500, default: automatic) |
+| `peer.public_key` | ✅ | WireGuard public key of the server |
+| `peer.endpoint` | ✅ | Server address with port (e.g. `vpn.example.com:51820`) |
+| `peer.allowed_ips` | ✅ | Allowed IP ranges (e.g. `10.0.0.0/24` — VPN subnet only!) |
+| `peer.persistent_keepalive` | ✅ | Keepalive interval in seconds (recommended: `25`) |
+| `peer.preshared_key` | ❌ | Optional PresharedKey for additional security |
+| `nat.enabled` | ✅ | Enable NAT/Masquerading (`true`/`false`, default: `false`) |
+| `nat.interface` | ❌ | Network interface for NAT (auto-detected if omitted) |
 
-### NAT / IP-Forwarding
+### NAT / IP Forwarding
 
-Wenn `nat.enabled: true` gesetzt ist, richtet das Add-on automatisch iptables-Regeln ein, die Traffic zwischen dem VPN-Tunnel und dem lokalen Netzwerk weiterleiten (IP-Forwarding + Masquerading). Das ist nötig, wenn du vom VPS auf das lokale Netzwerk des Pi zugreifen willst.
+When `nat.enabled: true` is set, the add-on automatically configures iptables rules that forward traffic between the VPN tunnel and the local network (IP forwarding + masquerading). This is required when you want to access the Pi's local network from the VPS.
 
 ```yaml
 nat:
   enabled: true
-  # interface: "eth0"    # Optional — wird automatisch erkannt
+  # interface: "eth0"    # Optional — auto-detected from default route
 ```
 
-Das Netzwerk-Interface wird automatisch über die Default-Route erkannt. Nur in Ausnahmefällen (z.B. mehrere NICs) muss es manuell gesetzt werden.
+The network interface is auto-detected via the default route. Manual configuration is only needed in special cases (e.g. multiple NICs).
 
-### Server-Konfiguration (VPS)
+### Server Configuration (VPS)
 
-Damit der VPS über den Tunnel auf das LAN des Pi zugreifen kann, muss auf dem **VPS** die WireGuard-Server-Config den richtigen Peer haben:
+For the VPS to access the Pi's LAN through the tunnel, the WireGuard server config on the **VPS** must have the correct peer entry:
 
 ```ini
-# /etc/wireguard/wg0.conf auf dem VPS
+# /etc/wireguard/wg0.conf on the VPS
 [Interface]
 Address = 10.0.0.1/24
 ListenPort = 51820
 PrivateKey = SERVER_PRIVATE_KEY
 
 [Peer]
-PublicKey = CLIENT_PUBLIC_KEY        # Public Key vom Raspberry Pi
-AllowedIPs = 10.0.0.2/32, 192.168.1.0/24   # VPN-IP + LAN des Pi
+PublicKey = CLIENT_PUBLIC_KEY
+AllowedIPs = 10.0.0.2/32, 192.168.1.0/24
 ```
 
-> **Wichtig:** Das LAN-Subnetz (`192.168.1.0/24`) wird nur in `AllowedIPs` auf der **Server-Seite** eingetragen — **nicht** auf dem Client! Sonst verliert der Pi die lokale Netzwerkverbindung.
+> **Important:** The LAN subnet (`192.168.1.0/24`) is only added to `AllowedIPs` on the **server side** — **not** on the client! Otherwise the Pi loses local network connectivity.
 
-## WireGuard Keys erzeugen
+## Generating WireGuard Keys
 
-Falls noch keine Keys vorhanden sind:
+If you don't have keys yet:
 
 ```bash
-# Private Key erzeugen
+# Generate private key
 wg genkey > privatekey
 
-# Public Key aus Private Key ableiten
+# Derive public key from private key
 cat privatekey | wg pubkey > publickey
 
-# Optional: PresharedKey erzeugen
+# Optional: Generate PresharedKey
 wg genpsk > presharedkey
 ```
 
 ## Troubleshooting
 
-### Add-on startet nicht
-- Prüfe, ob `private_key` und `public_key` korrekt gesetzt sind
-- Prüfe, ob der `endpoint` erreichbar ist (DNS-Auflösung, Port offen)
-- Schau in die Add-on-Logs: **Settings → Add-ons → WireGuard Client → Log**
+### Add-on won't start
+- Check that `private_key` and `public_key` are set correctly
+- Check that the `endpoint` is reachable (DNS resolution, port open)
+- Check the add-on logs: **Settings → Add-ons → WireGuard Client → Log**
 
-### Verbindung bricht regelmäßig ab
-- Stelle sicher, dass `persistent_keepalive` gesetzt ist (empfohlen: `25`)
-- Prüfe, ob der Server den Client als Peer konfiguriert hat
+### Connection drops regularly
+- Make sure `persistent_keepalive` is set (recommended: `25`)
+- Check that the server has the client configured as a peer
 
-### Kein Internetzugang über VPN
-- Setze `allowed_ips` auf `0.0.0.0/0` um allen Traffic über VPN zu routen
-- Konfiguriere `dns` mit einem DNS-Server im VPN oder einem öffentlichen DNS
+### No internet access through VPN
+- Set `allowed_ips` to `0.0.0.0/0` to route all traffic through VPN
+- Configure `dns` with a DNS server inside the VPN or a public DNS

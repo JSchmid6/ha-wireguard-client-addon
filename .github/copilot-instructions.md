@@ -12,7 +12,7 @@ Dies ist ein **Home Assistant Custom Add-on**, das Home Assistant als **WireGuar
 
 ```
 repository.json              # HA Add-on Repository Metadaten
-README.md                    # Dokumentation (deutsch)
+README.md                    # Dokumentation (englisch)
 wireguard-client/
   config.yaml                # Add-on Konfigurationsschema (HA Add-on Spec)
   build.yaml                 # Multi-Arch Build-Konfiguration
@@ -67,7 +67,7 @@ wireguard-client/
 ## Sprache
 
 - Code-Kommentare und Log-Meldungen: **Englisch**
-- README und Benutzerdokumentation: **Deutsch**
+- README und Benutzerdokumentation: **Englisch**
 
 ## Sicherheitshinweise
 
