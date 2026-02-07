@@ -83,7 +83,12 @@ Dieses Projekt hat kein CI, keine Tests und kein Build-Script. Änderungen werde
 
 Nach jeder abgeschlossenen Änderung immer:
 
-1. **Conventional Commit** erstellen — Format: `<type>(<scope>): <description>`
+1. **Version bumpen** in `wireguard-client/config.yaml` — Semver:
+   - `feat` → Minor-Bump (z.B. `1.1.0` → `1.2.0`)
+   - `fix` → Patch-Bump (z.B. `1.1.0` → `1.1.1`)
+   - Breaking Change → Major-Bump (z.B. `1.1.0` → `2.0.0`)
+   - `docs`, `chore`, `refactor` ohne funktionale Änderung → kein Bump
+2. **Conventional Commit** erstellen — Format: `<type>(<scope>): <description>`
    - Types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `chore`, `build`
    - Scope (optional): `run.sh`, `config`, `dockerfile`, `readme`, `build`
    - Beschreibung: kurz, imperativ, Englisch, kein Punkt am Ende
@@ -93,4 +98,4 @@ Nach jeder abgeschlossenen Änderung immer:
      - `docs(readme): add troubleshooting section`
      - `refactor(run.sh): extract config validation into helper function`
    - Bei Breaking Changes: `feat(config)!: rename peer options` (mit `!`)
-2. **Push** auf den Remote — `git push`
+3. **Push** auf den Remote — `git push`
