@@ -1,5 +1,5 @@
 name: "WireGuard Client"
-version: "1.1.0"
+version: "1.1.1"
 slug: "wireguard-client"
 description: "Connect Home Assistant as WireGuard VPN client to external server"
 url: "https://github.com/DEIN-USERNAME/ha-wireguard-client"
