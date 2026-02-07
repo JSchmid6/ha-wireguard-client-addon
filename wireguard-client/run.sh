@@ -85,6 +85,30 @@ if [ "${NAT_ENABLED}" = "true" ]; then
     fi
 fi
 
+# Allowed targets — selective forwarding rules (host:port or host)
+ALLOWED_TARGETS=()
+if bashio::config.has_value 'nat.allowed_targets'; then
+    local_idx=0
+    while bashio::config.exists "nat.allowed_targets[${local_idx}]"; do
+        target=$(bashio::config "nat.allowed_targets[${local_idx}]")
+        ALLOWED_TARGETS+=("${target}")
+        local_idx=$((local_idx + 1))
+    done
+    bashio::log.info "Configured ${#ALLOWED_TARGETS[@]} allowed target(s)"
+fi
+
+# Port forwards — DNAT from LAN through Pi to VPS (listen_port:dest_host:dest_port)
+PORT_FORWARDS=()
+if bashio::config.has_value 'nat.port_forwards'; then
+    local_idx=0
+    while bashio::config.exists "nat.port_forwards[${local_idx}]"; do
+        fwd=$(bashio::config "nat.port_forwards[${local_idx}]")
+        PORT_FORWARDS+=("${fwd}")
+        local_idx=$((local_idx + 1))
+    done
+    bashio::log.info "Configured ${#PORT_FORWARDS[@]} port forward(s)"
+fi
+
 # ==============================================================================
 # Generate WireGuard configuration
 # ==============================================================================
@@ -105,8 +129,67 @@ mkdir -p /etc/wireguard
 
     # NAT/Masquerading — controlled via structured config, no arbitrary commands
     if [ "${NAT_ENABLED}" = "true" ]; then
-        echo "PostUp = iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT; iptables -t nat -A POSTROUTING -o ${NAT_INTERFACE} -j MASQUERADE"
-        echo "PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT; iptables -t nat -D POSTROUTING -o ${NAT_INTERFACE} -j MASQUERADE"
+        # Build PostUp rules
+        postup=""
+        postdown=""
+
+        # Conntrack: allow established/related traffic in both directions
+        postup+="iptables -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT; "
+        postdown+="iptables -D FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT; "
+
+        if [ ${#ALLOWED_TARGETS[@]} -gt 0 ]; then
+            # Selective forwarding: only allow specific targets from VPN to LAN
+            for target in "${ALLOWED_TARGETS[@]}"; do
+                if [[ "${target}" == *":"* ]]; then
+                    t_host="${target%%:*}"
+                    t_port="${target##*:}"
+                    postup+="iptables -A FORWARD -i %i -o ${NAT_INTERFACE} -d ${t_host} -p tcp --dport ${t_port} -j ACCEPT; "
+                    postup+="iptables -A FORWARD -i %i -o ${NAT_INTERFACE} -d ${t_host} -p udp --dport ${t_port} -j ACCEPT; "
+                    postdown+="iptables -D FORWARD -i %i -o ${NAT_INTERFACE} -d ${t_host} -p tcp --dport ${t_port} -j ACCEPT; "
+                    postdown+="iptables -D FORWARD -i %i -o ${NAT_INTERFACE} -d ${t_host} -p udp --dport ${t_port} -j ACCEPT; "
+                else
+                    # Host only — allow all ports to this host
+                    postup+="iptables -A FORWARD -i %i -o ${NAT_INTERFACE} -d ${target} -j ACCEPT; "
+                    postdown+="iptables -D FORWARD -i %i -o ${NAT_INTERFACE} -d ${target} -j ACCEPT; "
+                fi
+            done
+        else
+            # No targets specified — allow all forwarding (legacy behavior)
+            postup+="iptables -A FORWARD -i %i -o ${NAT_INTERFACE} -j ACCEPT; "
+            postup+="iptables -A FORWARD -o %i -i ${NAT_INTERFACE} -j ACCEPT; "
+            postdown+="iptables -D FORWARD -i %i -o ${NAT_INTERFACE} -j ACCEPT; "
+            postdown+="iptables -D FORWARD -o %i -i ${NAT_INTERFACE} -j ACCEPT; "
+        fi
+
+        # Port forwards: DNAT from LAN interface to VPN destinations
+        for fwd in "${PORT_FORWARDS[@]}"; do
+            listen_port="${fwd%%:*}"
+            remainder="${fwd#*:}"
+            dest_host="${remainder%%:*}"
+            dest_port="${remainder##*:}"
+            # DNAT incoming traffic on NAT_INTERFACE to VPN destination
+            postup+="iptables -t nat -A PREROUTING -i ${NAT_INTERFACE} -p tcp --dport ${listen_port} -j DNAT --to-destination ${dest_host}:${dest_port}; "
+            postup+="iptables -A FORWARD -i ${NAT_INTERFACE} -o %i -d ${dest_host} -p tcp --dport ${dest_port} -j ACCEPT; "
+            postdown+="iptables -t nat -D PREROUTING -i ${NAT_INTERFACE} -p tcp --dport ${listen_port} -j DNAT --to-destination ${dest_host}:${dest_port}; "
+            postdown+="iptables -D FORWARD -i ${NAT_INTERFACE} -o %i -d ${dest_host} -p tcp --dport ${dest_port} -j ACCEPT; "
+        done
+
+        # MASQUERADE for VPN→LAN traffic
+        postup+="iptables -t nat -A POSTROUTING -o ${NAT_INTERFACE} -j MASQUERADE; "
+        postdown+="iptables -t nat -D POSTROUTING -o ${NAT_INTERFACE} -j MASQUERADE; "
+
+        # MASQUERADE for LAN→VPN traffic (port forwards)
+        if [ ${#PORT_FORWARDS[@]} -gt 0 ]; then
+            postup+="iptables -t nat -A POSTROUTING -o %i -j MASQUERADE"
+            postdown+="iptables -t nat -D POSTROUTING -o %i -j MASQUERADE"
+        fi
+
+        # Remove trailing "; " if present
+        postup="${postup%%; }"
+        postdown="${postdown%%; }"
+
+        echo "PostUp = ${postup}"
+        echo "PostDown = ${postdown}"
     fi
 
     echo ""
@@ -134,6 +217,18 @@ if [ -n "${INTERFACE_MTU}" ]; then
 fi
 if [ "${NAT_ENABLED}" = "true" ]; then
     bashio::log.info "NAT/Masquerading: enabled (interface: ${NAT_INTERFACE})"
+    if [ ${#ALLOWED_TARGETS[@]} -gt 0 ]; then
+        bashio::log.info "Allowed targets: ${ALLOWED_TARGETS[*]}"
+    else
+        bashio::log.info "Allowed targets: all (no restrictions)"
+    fi
+    for fwd in "${PORT_FORWARDS[@]}"; do
+        listen_port="${fwd%%:*}"
+        remainder="${fwd#*:}"
+        dest_host="${remainder%%:*}"
+        dest_port="${remainder##*:}"
+        bashio::log.info "Port forward: LAN:${listen_port} → ${dest_host}:${dest_port}"
+    done
 fi
 
 # ==============================================================================

@@ -31,6 +31,8 @@ Internet ← VPS (10.0.0.1) ←──WireGuard──→ RPi/HA (10.0.0.2) → LA
 - ✅ Optional DNS configuration
 - ✅ PresharedKey support for additional security
 - ✅ NAT/Masquerading with auto-detected network interface
+- ✅ Selective access control — restrict VPN to specific LAN targets
+- ✅ Port forwarding — expose VPN services to LAN devices
 - ✅ MTU configuration
 - ✅ Multi-architecture: amd64, aarch64, armv7, armhf, i386
 
@@ -64,6 +66,11 @@ peer:
 
 nat:
   enabled: true
+  allowed_targets:
+    - "192.168.1.100:8123"
+    - "192.168.1.50:5000"
+  port_forwards:
+    - "5000:10.0.0.1:5000"
 ```
 
 ### Minimal Example
@@ -95,6 +102,8 @@ peer:
 | `peer.preshared_key` | ❌ | Optional PresharedKey for additional security |
 | `nat.enabled` | ✅ | Enable NAT/Masquerading (`true`/`false`, default: `false`) |
 | `nat.interface` | ❌ | Network interface for NAT (auto-detected if omitted) |
+| `nat.allowed_targets` | ❌ | List of allowed LAN targets from VPN (e.g. `192.168.1.100:8123`). If empty, all forwarding is allowed |
+| `nat.port_forwards` | ❌ | List of port forwards from LAN to VPN (format: `listen_port:dest_host:dest_port`) |
 
 ### NAT / IP Forwarding
 
@@ -107,6 +116,55 @@ nat:
 ```
 
 The network interface is auto-detected via the default route. Manual configuration is only needed in special cases (e.g. multiple NICs).
+
+### Selective Access Control
+
+By default, NAT allows the VPN peer to reach **any** device on the local network. Use `allowed_targets` to restrict access to specific hosts and ports:
+
+```yaml
+nat:
+  enabled: true
+  allowed_targets:
+    - "192.168.1.100:8123"   # Home Assistant web UI only
+    - "192.168.1.50:5000"    # NAS on port 5000
+    - "192.168.1.1"          # Router — all ports
+```
+
+Format: `"host:port"` for a specific port (TCP + UDP), or `"host"` for all ports on that host.
+
+If `allowed_targets` is empty or omitted, all forwarding is allowed (legacy behavior).
+
+### Port Forwarding (LAN → VPN)
+
+Use `port_forwards` to make services running on the VPN side (e.g. on the VPS) accessible from LAN devices through the Pi:
+
+```yaml
+nat:
+  enabled: true
+  port_forwards:
+    - "5000:10.0.0.1:5000"   # Frigate web UI on VPS
+    - "8080:10.0.0.1:8080"   # Another VPS service
+```
+
+Format: `"listen_port:dest_host:dest_port"`
+
+- `listen_port` — Port on the Pi's LAN interface that LAN devices connect to
+- `dest_host:dest_port` — Destination on the VPN side (typically the VPS IP)
+
+**Example:** With `"5000:10.0.0.1:5000"`, a LAN device can access `http://192.168.1.X:5000` (the Pi's LAN IP) and the traffic is forwarded through the VPN tunnel to `10.0.0.1:5000` on the VPS.
+
+### Combining Both Features
+
+```yaml
+nat:
+  enabled: true
+  allowed_targets:
+    - "192.168.1.100:8123"
+  port_forwards:
+    - "5000:10.0.0.1:5000"
+```
+
+This allows the VPS to reach only HA on `192.168.1.100:8123`, while LAN devices can access Frigate on the VPS via `Pi-IP:5000`.
 
 ### Server Configuration (VPS)
 

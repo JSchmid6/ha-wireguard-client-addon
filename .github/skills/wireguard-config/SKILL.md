@@ -67,6 +67,8 @@ Document the new option in the German configuration section.
 - `peer.preshared_key` — Additional symmetric-key layer
 - `nat.enabled` — Enable iptables FORWARD + MASQUERADE (bool)
 - `nat.interface` — Physical interface for NAT (optional, auto-detected from default route)
+- `nat.allowed_targets` — String array of allowed LAN targets from VPN (`"host:port"` or `"host"`)
+- `nat.port_forwards` — String array of port forwards from LAN to VPN (`"listen_port:dest_host:dest_port"`)
 
 ## NAT Implementation
 NAT is handled via structured config values, NOT via arbitrary shell commands.
@@ -74,11 +76,34 @@ The add-on auto-detects the physical network interface via:
 ```bash
 ip route show default | awk '/default/ {print $5}' | head -1
 ```
-Then generates safe, hardcoded iptables rules in PostUp/PostDown:
+
+### Selective Access (allowed_targets)
+When `allowed_targets` is configured, the add-on generates per-target iptables FORWARD rules
+instead of blanket forwarding. Format: `"host:port"` (TCP+UDP) or `"host"` (all ports).
+If no targets are specified, all forwarding is allowed (legacy behavior).
+
+### Port Forwarding (port_forwards)
+The add-on generates DNAT + FORWARD rules to expose VPN-side services to LAN devices.
+Format: `"listen_port:dest_host:dest_port"`.
+Traffic arriving on `NAT_INTERFACE:listen_port` is DNATed to `dest_host:dest_port` through wg0.
+Requires an additional MASQUERADE on the wg0 interface for return traffic.
+
+### Generated iptables Rules
 ```
-iptables -A FORWARD -i %i -j ACCEPT
-iptables -A FORWARD -o %i -j ACCEPT
-iptables -t nat -A POSTROUTING -o <detected_interface> -j MASQUERADE
+# Conntrack (always)
+iptables -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+# Per-target forwarding (if allowed_targets configured)
+iptables -A FORWARD -i wg0 -o eth0 -d <host> -p tcp --dport <port> -j ACCEPT
+iptables -A FORWARD -i wg0 -o eth0 -d <host> -p udp --dport <port> -j ACCEPT
+
+# Port forward DNAT (if port_forwards configured)
+iptables -t nat -A PREROUTING -i eth0 -p tcp --dport <listen> -j DNAT --to-destination <dest_host>:<dest_port>
+iptables -A FORWARD -i eth0 -o wg0 -d <dest_host> -p tcp --dport <dest_port> -j ACCEPT
+
+# MASQUERADE
+iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE       # VPN→LAN
+iptables -t nat -A POSTROUTING -o wg0 -j MASQUERADE        # LAN→VPN (port forwards only)
 ```
 This prevents shell injection and keeps the privileged container secure.
 
