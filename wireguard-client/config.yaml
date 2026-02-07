@@ -2,7 +2,7 @@ name: "WireGuard Client"
 version: "1.4.0"
 slug: "wireguard-client"
 description: "Connect Home Assistant as WireGuard VPN client to external server"
-url: "https://github.com/DEIN-USERNAME/ha-wireguard-client"
+url: "https://github.com/JSchmid6/ha-wireguard-client-addon"
 startup: "services"
 arch:
   - armhf
