@@ -15,6 +15,7 @@ privileged:
   - NET_ADMIN
   - SYS_MODULE
 host_network: true
+hassio_api: true
 options:
   interface:
     address: "10.0.0.2/24"
