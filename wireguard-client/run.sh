@@ -1,96 +1,130 @@
 #!/usr/bin/env bashio
 
-CONFIG_PATH=/data/options.json
+# ==============================================================================
+# Home Assistant WireGuard Client Add-on
+# Connects Home Assistant as WireGuard VPN client to an external server
+# ==============================================================================
 
-# Read configuration
-INTERFACE_ADDRESS=$(bashio::config 'interface.address')
-INTERFACE_PRIVATE_KEY=$(bashio::config 'interface.private_key')
-PEER_PUBLIC_KEY=$(bashio::config 'peer.public_key')
-PEER_ENDPOINT=$(bashio::config 'peer.endpoint')
-PEER_ALLOWED_IPS=$(bashio::config 'peer.allowed_ips')
-PEER_KEEPALIVE=$(bashio::config 'peer.persistent_keepalive')
+readonly WG_INTERFACE="wg0"
+readonly WG_CONFIG="/etc/wireguard/${WG_INTERFACE}.conf"
+readonly WATCHDOG_INTERVAL=30
+readonly RECONNECT_DELAY=5
 
-# Strip any quotes that might be included in the values
-INTERFACE_ADDRESS=$(echo "${INTERFACE_ADDRESS}" | tr -d "'\"")
-INTERFACE_PRIVATE_KEY=$(echo "${INTERFACE_PRIVATE_KEY}" | tr -d "'\"")
-PEER_PUBLIC_KEY=$(echo "${PEER_PUBLIC_KEY}" | tr -d "'\"")
-PEER_ENDPOINT=$(echo "${PEER_ENDPOINT}" | tr -d "'\"")
-PEER_ALLOWED_IPS=$(echo "${PEER_ALLOWED_IPS}" | tr -d "'\"")
-PEER_KEEPALIVE=$(echo "${PEER_KEEPALIVE}" | tr -d "'\"")
+# ------------------------------------------------------------------------------
+# Cleanup handler — gracefully tear down WireGuard on SIGTERM/SIGINT
+# ------------------------------------------------------------------------------
+cleanup() {
+    bashio::log.info "Shutting down WireGuard interface..."
+    wg-quick down "${WG_INTERFACE}" 2>/dev/null || true
+    bashio::log.info "WireGuard stopped. Goodbye."
+    exit 0
+}
+trap cleanup SIGTERM SIGINT
 
+# ------------------------------------------------------------------------------
+# Validate that a config value is not empty
+# Arguments: $1 = config key, $2 = human-readable label
+# ------------------------------------------------------------------------------
+require_config() {
+    local key="${1}"
+    local label="${2}"
+    local value
+
+    value=$(bashio::config "${key}")
+    if [ -z "${value}" ]; then
+        bashio::log.error "${label} is not configured!"
+        bashio::log.error "Please check your add-on configuration."
+        exit 1
+    fi
+    echo "${value}"
+}
+
+# ==============================================================================
+# Read and validate configuration
+# ==============================================================================
 bashio::log.info "Starting WireGuard Client..."
 
-# Validate required configuration
-if [ -z "${INTERFACE_ADDRESS}" ]; then
-    bashio::log.error "Interface address is not configured!"
-    bashio::log.error "Please check your addon configuration."
-    exit 1
+INTERFACE_ADDRESS=$(require_config 'interface.address' "Interface address")
+INTERFACE_PRIVATE_KEY=$(require_config 'interface.private_key' "Interface private key")
+PEER_PUBLIC_KEY=$(require_config 'peer.public_key' "Peer public key")
+PEER_ENDPOINT=$(require_config 'peer.endpoint' "Peer endpoint")
+PEER_ALLOWED_IPS=$(require_config 'peer.allowed_ips' "Peer allowed IPs")
+PEER_KEEPALIVE=$(bashio::config 'peer.persistent_keepalive')
+
+# Optional configuration
+INTERFACE_DNS=""
+if bashio::config.has_value 'interface.dns'; then
+    INTERFACE_DNS=$(bashio::config 'interface.dns')
 fi
 
-if [ -z "${INTERFACE_PRIVATE_KEY}" ]; then
-    bashio::log.error "Interface private key is not configured!"
-    bashio::log.error "Please check your addon configuration."
-    exit 1
+PEER_PRESHARED_KEY=""
+if bashio::config.has_value 'peer.preshared_key'; then
+    PEER_PRESHARED_KEY=$(bashio::config 'peer.preshared_key')
 fi
 
-if [ -z "${PEER_PUBLIC_KEY}" ]; then
-    bashio::log.error "Peer public key is not configured!"
-    bashio::log.error "Please check your addon configuration."
-    exit 1
-fi
-
-if [ -z "${PEER_ENDPOINT}" ]; then
-    bashio::log.error "Peer endpoint is not configured!"
-    bashio::log.error "Please check your addon configuration."
-    exit 1
-fi
-
-if [ -z "${PEER_ALLOWED_IPS}" ]; then
-    bashio::log.error "Peer allowed IPs are not configured!"
-    bashio::log.error "Please check your addon configuration."
-    exit 1
-fi
-
-# Create WireGuard config
+# ==============================================================================
+# Generate WireGuard configuration
+# ==============================================================================
 mkdir -p /etc/wireguard
-cat > /etc/wireguard/wg0.conf <<WGEOF
-[Interface]
-Address = ${INTERFACE_ADDRESS}
-PrivateKey = ${INTERFACE_PRIVATE_KEY}
 
-[Peer]
-PublicKey = ${PEER_PUBLIC_KEY}
-Endpoint = ${PEER_ENDPOINT}
-AllowedIPs = ${PEER_ALLOWED_IPS}
-PersistentKeepalive = ${PEER_KEEPALIVE}
-WGEOF
+{
+    echo "[Interface]"
+    echo "Address = ${INTERFACE_ADDRESS}"
+    echo "PrivateKey = ${INTERFACE_PRIVATE_KEY}"
+    if [ -n "${INTERFACE_DNS}" ]; then
+        echo "DNS = ${INTERFACE_DNS}"
+    fi
+    echo ""
+    echo "[Peer]"
+    echo "PublicKey = ${PEER_PUBLIC_KEY}"
+    echo "Endpoint = ${PEER_ENDPOINT}"
+    echo "AllowedIPs = ${PEER_ALLOWED_IPS}"
+    echo "PersistentKeepalive = ${PEER_KEEPALIVE}"
+    if [ -n "${PEER_PRESHARED_KEY}" ]; then
+        echo "PresharedKey = ${PEER_PRESHARED_KEY}"
+    fi
+} > "${WG_CONFIG}"
 
-chmod 600 /etc/wireguard/wg0.conf
+chmod 600 "${WG_CONFIG}"
 
-bashio::log.info "WireGuard config created"
+bashio::log.info "WireGuard configuration generated"
 bashio::log.info "Endpoint: ${PEER_ENDPOINT}"
 bashio::log.info "Address: ${INTERFACE_ADDRESS}"
+bashio::log.info "Allowed IPs: ${PEER_ALLOWED_IPS}"
+if [ -n "${INTERFACE_DNS}" ]; then
+    bashio::log.info "DNS: ${INTERFACE_DNS}"
+fi
 
+# ==============================================================================
 # Start WireGuard
+# ==============================================================================
 bashio::log.info "Bringing up WireGuard interface..."
-wg-quick up wg0
-
-# Check status
-if wg show wg0 > /dev/null 2>&1; then
-    bashio::log.info "WireGuard interface is up!"
-    wg show wg0
-else
+if ! wg-quick up "${WG_INTERFACE}"; then
     bashio::log.error "Failed to start WireGuard!"
     exit 1
 fi
 
-# Keep container running and monitor connection
+bashio::log.info "WireGuard interface is up!"
+wg show "${WG_INTERFACE}"
+
+# ==============================================================================
+# Watchdog — monitor connection and auto-reconnect
+# ==============================================================================
+bashio::log.info "Entering watchdog loop (interval: ${WATCHDOG_INTERVAL}s)..."
+
 while true; do
-    if ! wg show wg0 > /dev/null 2>&1; then
-        bashio::log.warning "WireGuard interface down, restarting..."
-        wg-quick down wg0 2>/dev/null || true
-        sleep 5
-        wg-quick up wg0
+    sleep "${WATCHDOG_INTERVAL}"
+
+    if ! wg show "${WG_INTERFACE}" > /dev/null 2>&1; then
+        bashio::log.warning "WireGuard interface down, attempting reconnect..."
+        wg-quick down "${WG_INTERFACE}" 2>/dev/null || true
+        sleep "${RECONNECT_DELAY}"
+
+        if wg-quick up "${WG_INTERFACE}"; then
+            bashio::log.info "WireGuard reconnected successfully"
+            wg show "${WG_INTERFACE}"
+        else
+            bashio::log.error "WireGuard reconnect failed, will retry in ${WATCHDOG_INTERVAL}s"
+        fi
     fi
-    sleep 30
 done
