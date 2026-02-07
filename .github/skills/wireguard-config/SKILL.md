@@ -66,22 +66,31 @@ Document the new option in the German configuration section.
 - `interface.mtu` — Custom MTU (1280–1500)
 - `peer.preshared_key` — Additional symmetric-key layer
 - `nat.enabled` — Enable iptables FORWARD + MASQUERADE (bool)
-- `nat.interface` — Physical interface for NAT (default: eth0)
+- `nat.interface` — Physical interface for NAT (optional, auto-detected from default route)
 
 ## NAT Implementation
 NAT is handled via structured config values, NOT via arbitrary shell commands.
-The add-on generates safe, hardcoded iptables rules in PostUp/PostDown:
+The add-on auto-detects the physical network interface via:
+```bash
+ip route show default | awk '/default/ {print $5}' | head -1
+```
+Then generates safe, hardcoded iptables rules in PostUp/PostDown:
 ```
 iptables -A FORWARD -i %i -j ACCEPT
 iptables -A FORWARD -o %i -j ACCEPT
-iptables -t nat -A POSTROUTING -o <nat.interface> -j MASQUERADE
+iptables -t nat -A POSTROUTING -o <detected_interface> -j MASQUERADE
 ```
 This prevents shell injection and keeps the privileged container secure.
 
-## Routing
-Custom routing (additional subnets) is handled by `wg-quick` automatically
-via the `AllowedIPs` directive. Users should list all desired subnets
-comma-separated in `peer.allowed_ips` instead of using manual `ip route` commands.
+## Routing — Split Tunnel Warning
+**NEVER** put the client's local LAN subnet (e.g. `192.168.1.0/24`) into
+`peer.allowed_ips` on the client side! This would route all LAN traffic
+through the tunnel, breaking local connectivity.
+
+Instead:
+- Client `allowed_ips`: Only the VPN subnet (e.g. `10.0.0.0/24`)
+- Server `AllowedIPs`: VPN IP + LAN subnet (e.g. `10.0.0.2/32, 192.168.1.0/24`)
+- Client `nat.enabled: true` — so incoming VPN traffic gets forwarded to LAN
 
 ## Security
 - Never expose arbitrary shell command execution (PostUp/PostDown as user input)

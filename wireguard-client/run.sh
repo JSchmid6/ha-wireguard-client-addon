@@ -69,7 +69,21 @@ fi
 
 # NAT configuration
 NAT_ENABLED=$(bashio::config 'nat.enabled')
-NAT_INTERFACE=$(bashio::config 'nat.interface')
+NAT_INTERFACE=""
+if [ "${NAT_ENABLED}" = "true" ]; then
+    if bashio::config.has_value 'nat.interface'; then
+        NAT_INTERFACE=$(bashio::config 'nat.interface')
+    else
+        # Auto-detect default network interface from routing table
+        NAT_INTERFACE=$(ip route show default | awk '/default/ {print $5}' | head -1)
+        if [ -z "${NAT_INTERFACE}" ]; then
+            bashio::log.error "NAT enabled but could not auto-detect network interface!"
+            bashio::log.error "Please set nat.interface manually."
+            exit 1
+        fi
+        bashio::log.info "Auto-detected NAT interface: ${NAT_INTERFACE}"
+    fi
+fi
 
 # ==============================================================================
 # Generate WireGuard configuration
