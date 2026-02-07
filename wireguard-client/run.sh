@@ -51,16 +51,25 @@ PEER_ENDPOINT=$(require_config 'peer.endpoint' "Peer endpoint")
 PEER_ALLOWED_IPS=$(require_config 'peer.allowed_ips' "Peer allowed IPs")
 PEER_KEEPALIVE=$(bashio::config 'peer.persistent_keepalive')
 
-# Optional configuration
+# Optional interface configuration
 INTERFACE_DNS=""
 if bashio::config.has_value 'interface.dns'; then
     INTERFACE_DNS=$(bashio::config 'interface.dns')
+fi
+
+INTERFACE_MTU=""
+if bashio::config.has_value 'interface.mtu'; then
+    INTERFACE_MTU=$(bashio::config 'interface.mtu')
 fi
 
 PEER_PRESHARED_KEY=""
 if bashio::config.has_value 'peer.preshared_key'; then
     PEER_PRESHARED_KEY=$(bashio::config 'peer.preshared_key')
 fi
+
+# NAT configuration
+NAT_ENABLED=$(bashio::config 'nat.enabled')
+NAT_INTERFACE=$(bashio::config 'nat.interface')
 
 # ==============================================================================
 # Generate WireGuard configuration
@@ -71,9 +80,21 @@ mkdir -p /etc/wireguard
     echo "[Interface]"
     echo "Address = ${INTERFACE_ADDRESS}"
     echo "PrivateKey = ${INTERFACE_PRIVATE_KEY}"
+
     if [ -n "${INTERFACE_DNS}" ]; then
         echo "DNS = ${INTERFACE_DNS}"
     fi
+
+    if [ -n "${INTERFACE_MTU}" ]; then
+        echo "MTU = ${INTERFACE_MTU}"
+    fi
+
+    # NAT/Masquerading — controlled via structured config, no arbitrary commands
+    if [ "${NAT_ENABLED}" = "true" ]; then
+        echo "PostUp = iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT; iptables -t nat -A POSTROUTING -o ${NAT_INTERFACE} -j MASQUERADE"
+        echo "PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT; iptables -t nat -D POSTROUTING -o ${NAT_INTERFACE} -j MASQUERADE"
+    fi
+
     echo ""
     echo "[Peer]"
     echo "PublicKey = ${PEER_PUBLIC_KEY}"
@@ -93,6 +114,12 @@ bashio::log.info "Address: ${INTERFACE_ADDRESS}"
 bashio::log.info "Allowed IPs: ${PEER_ALLOWED_IPS}"
 if [ -n "${INTERFACE_DNS}" ]; then
     bashio::log.info "DNS: ${INTERFACE_DNS}"
+fi
+if [ -n "${INTERFACE_MTU}" ]; then
+    bashio::log.info "MTU: ${INTERFACE_MTU}"
+fi
+if [ "${NAT_ENABLED}" = "true" ]; then
+    bashio::log.info "NAT/Masquerading: enabled (interface: ${NAT_INTERFACE})"
 fi
 
 # ==============================================================================

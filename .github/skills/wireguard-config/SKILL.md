@@ -58,10 +58,33 @@ WGEOF
 Document the new option in the German configuration section.
 
 ## WireGuard Config Reference
-- `[Interface]` section: Address, PrivateKey, DNS, MTU, PostUp, PostDown, Table, ListenPort
+- `[Interface]` section: Address, PrivateKey, DNS, MTU, PostUp, PostDown
 - `[Peer]` section: PublicKey, Endpoint, AllowedIPs, PersistentKeepalive, PresharedKey
 
+## Supported Optional Features
+- `interface.dns` — DNS server(s) for the tunnel
+- `interface.mtu` — Custom MTU (1280–1500)
+- `peer.preshared_key` — Additional symmetric-key layer
+- `nat.enabled` — Enable iptables FORWARD + MASQUERADE (bool)
+- `nat.interface` — Physical interface for NAT (default: eth0)
+
+## NAT Implementation
+NAT is handled via structured config values, NOT via arbitrary shell commands.
+The add-on generates safe, hardcoded iptables rules in PostUp/PostDown:
+```
+iptables -A FORWARD -i %i -j ACCEPT
+iptables -A FORWARD -o %i -j ACCEPT
+iptables -t nat -A POSTROUTING -o <nat.interface> -j MASQUERADE
+```
+This prevents shell injection and keeps the privileged container secure.
+
+## Routing
+Custom routing (additional subnets) is handled by `wg-quick` automatically
+via the `AllowedIPs` directive. Users should list all desired subnets
+comma-separated in `peer.allowed_ips` instead of using manual `ip route` commands.
+
 ## Security
-- Never log PrivateKey or PresharedKey values.
-- Always `chmod 600 /etc/wireguard/wg0.conf`.
-- Leave security-sensitive defaults as empty strings in `config.yaml`.
+- Never expose arbitrary shell command execution (PostUp/PostDown as user input)
+- Never log PrivateKey or PresharedKey values
+- Always `chmod 600 /etc/wireguard/wg0.conf`
+- Leave security-sensitive defaults as empty strings in `config.yaml`
