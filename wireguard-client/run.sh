@@ -10,7 +10,46 @@ PEER_ENDPOINT=$(bashio::config 'peer.endpoint')
 PEER_ALLOWED_IPS=$(bashio::config 'peer.allowed_ips')
 PEER_KEEPALIVE=$(bashio::config 'peer.persistent_keepalive')
 
+# Strip any quotes that might be included in the values
+INTERFACE_ADDRESS=$(echo "${INTERFACE_ADDRESS}" | tr -d "'\"")
+INTERFACE_PRIVATE_KEY=$(echo "${INTERFACE_PRIVATE_KEY}" | tr -d "'\"")
+PEER_PUBLIC_KEY=$(echo "${PEER_PUBLIC_KEY}" | tr -d "'\"")
+PEER_ENDPOINT=$(echo "${PEER_ENDPOINT}" | tr -d "'\"")
+PEER_ALLOWED_IPS=$(echo "${PEER_ALLOWED_IPS}" | tr -d "'\"")
+PEER_KEEPALIVE=$(echo "${PEER_KEEPALIVE}" | tr -d "'\"")
+
 bashio::log.info "Starting WireGuard Client..."
+
+# Validate required configuration
+if [ -z "${INTERFACE_ADDRESS}" ]; then
+    bashio::log.error "Interface address is not configured!"
+    bashio::log.error "Please check your addon configuration."
+    exit 1
+fi
+
+if [ -z "${INTERFACE_PRIVATE_KEY}" ]; then
+    bashio::log.error "Interface private key is not configured!"
+    bashio::log.error "Please check your addon configuration."
+    exit 1
+fi
+
+if [ -z "${PEER_PUBLIC_KEY}" ]; then
+    bashio::log.error "Peer public key is not configured!"
+    bashio::log.error "Please check your addon configuration."
+    exit 1
+fi
+
+if [ -z "${PEER_ENDPOINT}" ]; then
+    bashio::log.error "Peer endpoint is not configured!"
+    bashio::log.error "Please check your addon configuration."
+    exit 1
+fi
+
+if [ -z "${PEER_ALLOWED_IPS}" ]; then
+    bashio::log.error "Peer allowed IPs are not configured!"
+    bashio::log.error "Please check your addon configuration."
+    exit 1
+fi
 
 # Create WireGuard config
 mkdir -p /etc/wireguard
