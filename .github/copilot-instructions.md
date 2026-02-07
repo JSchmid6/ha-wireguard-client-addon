@@ -35,7 +35,7 @@ wireguard-client/
 ## Coding-Richtlinien
 
 ### Shell-Skripte (run.sh)
-- Immer `#!/usr/bin/env bashio` als Shebang verwenden.
+- Immer `#!/command/with-contenv bashio` als Shebang verwenden (S6 Overlay V3 benötigt `with-contenv` um `SUPERVISOR_TOKEN` zu laden).
 - Konfiguration immer über `bashio::config 'key.subkey'` lesen, **nicht** über `jq` direkt.
 - Logging immer mit `bashio::log.info`, `bashio::log.warning`, `bashio::log.error` – kein `echo`.
 - Config-Validierung: Pflichtfelder mit `if [ -z "${VAR}" ]` prüfen und bei Fehler `exit 1`.

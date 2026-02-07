@@ -44,7 +44,7 @@ bashio::services 'mqtt' 'host'
 
 ## Script Structure Pattern
 ```bash
-#!/usr/bin/env bashio
+#!/command/with-contenv bashio
 
 # 1. Read configuration
 VAR=$(bashio::config 'key')

@@ -1,4 +1,4 @@
-#!/usr/bin/env bashio
+#!/command/with-contenv bashio
 
 # ==============================================================================
 # Home Assistant WireGuard Client Add-on

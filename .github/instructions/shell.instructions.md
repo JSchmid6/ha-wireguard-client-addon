@@ -5,7 +5,7 @@ applyTo: "**/*.sh"
 # Shell Script Instructions
 
 ## Convention
-- Shebang: `#!/usr/bin/env bashio`
+- Shebang: `#!/command/with-contenv bashio` (required for S6 Overlay V3 to load `SUPERVISOR_TOKEN`)
 - Read config values via `bashio::config 'key.subkey'` — never use `jq` directly on `/data/options.json`.
 - Log via `bashio::log.info`, `bashio::log.warning`, `bashio::log.error` — never use `echo`.
 - Validate required config fields with `if [ -z "${VAR}" ]; then bashio::log.error "..."; exit 1; fi`.
