@@ -217,15 +217,11 @@ mkdir -p /etc/wireguard
         for route in "${LOCAL_ROUTES[@]}"; do
             # Remove whitespace
             route=$(echo "${route}" | xargs)
-            # Allow route addition to fail gracefully (route may already exist or be a duplicate)
-            echo "PostUp = ip route add ${route} dev %i || true"
+            # Route addition may fail if already exists (e.g., overlaps with Address), ignore errors
+            echo "PostUp = ip route add ${route} dev %i 2>/dev/null || true"
+            echo "PostDown = ip route del ${route} dev %i 2>/dev/null || true"
         done
-
-        # Runtime override: Set server_allowed_ips for peer handshake
-        # This changes what the server receives, but doesn't affect local routing (Table=off)
-        # CRITICAL: This must succeed for asymmetric routing to work
-        echo "PostUp = wg set %i peer ${PEER_PUBLIC_KEY} allowed-ips ${PEER_SERVER_ALLOWED_IPS} || { echo 'CRITICAL: Failed to set AllowedIPs override to ${PEER_SERVER_ALLOWED_IPS}'; exit 1; }"
-
+        
         bashio::log.info "Manual routing configured:"
         bashio::log.info "  Local routes: ${PEER_ALLOWED_IPS}"
         bashio::log.info "  Server will receive: ${PEER_SERVER_ALLOWED_IPS}"
@@ -235,7 +231,14 @@ mkdir -p /etc/wireguard
     echo "[Peer]"
     echo "PublicKey = ${PEER_PUBLIC_KEY}"
     echo "Endpoint = ${PEER_ENDPOINT}"
-    echo "AllowedIPs = ${PEER_ALLOWED_IPS}"
+    
+    # Use server_allowed_ips if configured (sent in handshake), otherwise use allowed_ips
+    if [ -n "${PEER_SERVER_ALLOWED_IPS}" ]; then
+        echo "AllowedIPs = ${PEER_SERVER_ALLOWED_IPS}"
+    else
+        echo "AllowedIPs = ${PEER_ALLOWED_IPS}"
+    fi
+    
     echo "PersistentKeepalive = ${PEER_KEEPALIVE}"
     if [ -n "${PEER_PRESHARED_KEY}" ]; then
         echo "PresharedKey = ${PEER_PRESHARED_KEY}"
