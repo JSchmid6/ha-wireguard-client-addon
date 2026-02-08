@@ -1,5 +1,5 @@
 name: "WireGuard Client"
-version: "1.4.0"
+version: "1.5.0"
 slug: "wireguard-client"
 description: "Connect Home Assistant as WireGuard VPN client to external server"
 url: "https://github.com/JSchmid6/ha-wireguard-client-addon"
@@ -38,6 +38,7 @@ schema:
     public_key: password
     endpoint: str
     allowed_ips: str
+    server_allowed_ips: "str?"
     persistent_keepalive: "int(0,65535)"
     preshared_key: "password?"
   nat:
