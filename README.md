@@ -61,6 +61,7 @@ peer:
   public_key: "SERVER_PUBLIC_KEY"
   endpoint: "vpn.example.com:51820"
   allowed_ips: "10.0.0.0/24"
+  server_allowed_ips: "10.0.0.0/24,192.168.1.0/24"  # Optional: for asymmetric routing
   persistent_keepalive: 25
   preshared_key: "OPTIONAL_PRESHARED_KEY"
 
@@ -98,6 +99,7 @@ peer:
 | `peer.public_key` | ✅ | WireGuard public key of the server |
 | `peer.endpoint` | ✅ | Server address with port (e.g. `vpn.example.com:51820`) |
 | `peer.allowed_ips` | ✅ | Allowed IP ranges (e.g. `10.0.0.0/24` — VPN subnet only!) |
+| `peer.server_allowed_ips` | ❌ | Server-side AllowedIPs for asymmetric routing (see below) |
 | `peer.persistent_keepalive` | ✅ | Keepalive interval in seconds (recommended: `25`) |
 | `peer.preshared_key` | ❌ | Optional PresharedKey for additional security |
 | `nat.enabled` | ✅ | Enable NAT/Masquerading (`true`/`false`, default: `false`) |
@@ -133,6 +135,41 @@ nat:
 Format: `"host:port"` for a specific port (TCP + UDP), or `"host"` for all ports on that host.
 
 If `allowed_targets` is empty or omitted, all forwarding is allowed (legacy behavior).
+
+### Asymmetric Routing with `server_allowed_ips`
+
+**Problem:** WireGuard has a design quirk where the client sends its `AllowedIPs` during the handshake, and the server **overwrites** its own config with those values. This prevents asymmetric routing scenarios where:
+- The **client** wants only the VPN subnet routed through the tunnel (to keep local LAN connectivity)
+- The **server** needs to route both the VPN subnet AND the client's LAN networks (to allow other VPN peers to reach the client's LAN)
+
+**Example Scenario:**
+- Raspberry Pi (client): wants `allowed_ips: 10.0.0.0/24` (keeps `192.168.1.0/24` local)
+- VPS (server): needs `AllowedIPs: 10.0.0.2/32, 192.168.1.0/24, 172.30.32.0/24` (to route smartphone traffic to Pi's LAN)
+- After handshake: VPS gets only `allowed ips: 10.0.0.2/32` ❌
+- Result: Smartphone cannot reach Pi's LAN networks!
+
+**Solution:** Use the new `server_allowed_ips` parameter:
+
+```yaml
+peer:
+  public_key: "SERVER_PUBLIC_KEY"
+  endpoint: "vpn.example.com:51820"
+  allowed_ips: "10.0.0.0/24"                                        # Local routing on client
+  server_allowed_ips: "10.0.0.0/24,192.168.1.0/24,172.30.32.0/24"  # Sent to server during handshake
+  persistent_keepalive: 25
+```
+
+**How it works:**
+- `allowed_ips` — Used for local routing on the client (Pi)
+- `server_allowed_ips` — Sent to the server during the WireGuard handshake
+- The add-on automatically sets up manual routes for any networks in `allowed_ips` that aren't covered by `server_allowed_ips`
+
+**When to use:**
+- You have multiple VPN peers (e.g. smartphone + Pi) on the same VPS
+- The smartphone needs to access the Pi's local networks through the VPN
+- You want to keep the Pi's local network connectivity intact
+
+**Backward compatibility:** If `server_allowed_ips` is not set, the add-on behaves exactly as before (uses `allowed_ips` for everything).
 
 ### Port Forwarding (LAN → VPN)
 
