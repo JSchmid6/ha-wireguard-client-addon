@@ -217,13 +217,13 @@ mkdir -p /etc/wireguard
         for route in "${LOCAL_ROUTES[@]}"; do
             # Remove whitespace
             route=$(echo "${route}" | xargs)
-            echo "PostUp = ip route add ${route} dev %i"
+            echo "PostUp = ip route add ${route} dev %i || true"
         done
-        
+
         # Runtime override: Set server_allowed_ips for peer handshake
         # This changes what the server receives, but doesn't affect local routing (Table=off)
-        echo "PostUp = wg set %i peer ${PEER_PUBLIC_KEY} allowed-ips ${PEER_SERVER_ALLOWED_IPS}"
-        
+        echo "PostUp = wg set %i peer ${PEER_PUBLIC_KEY} allowed-ips ${PEER_SERVER_ALLOWED_IPS} || { echo 'Failed to set AllowedIPs override'; exit 1; }"
+
         bashio::log.info "Manual routing configured:"
         bashio::log.info "  Local routes: ${PEER_ALLOWED_IPS}"
         bashio::log.info "  Server will receive: ${PEER_SERVER_ALLOWED_IPS}"
