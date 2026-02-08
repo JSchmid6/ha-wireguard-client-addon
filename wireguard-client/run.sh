@@ -69,6 +69,13 @@ if bashio::config.has_value 'interface.mtu'; then
     INTERFACE_MTU=$(bashio::config 'interface.mtu')
 fi
 
+INTERFACE_TABLE=""
+if [ -n "${PEER_SERVER_ALLOWED_IPS}" ]; then
+    # Disable automatic routing when using server_allowed_ips
+    INTERFACE_TABLE="off"
+    bashio::log.info "Table management disabled (manual routing mode)"
+fi
+
 PEER_PRESHARED_KEY=""
 if bashio::config.has_value 'peer.preshared_key'; then
     PEER_PRESHARED_KEY=$(bashio::config 'peer.preshared_key')
@@ -132,6 +139,10 @@ mkdir -p /etc/wireguard
 
     if [ -n "${INTERFACE_MTU}" ]; then
         echo "MTU = ${INTERFACE_MTU}"
+    fi
+
+    if [ -n "${INTERFACE_TABLE}" ]; then
+        echo "Table = ${INTERFACE_TABLE}"
     fi
 
     # NAT/Masquerading — controlled via structured config, no arbitrary commands
@@ -199,18 +210,30 @@ mkdir -p /etc/wireguard
         echo "PostDown = ${postdown}"
     fi
 
+    # Manual routing when server_allowed_ips is configured
+    if [ -n "${PEER_SERVER_ALLOWED_IPS}" ]; then
+        # Add routes only for local allowed_ips (not server_allowed_ips)
+        IFS=',' read -ra LOCAL_ROUTES <<< "${PEER_ALLOWED_IPS}"
+        for route in "${LOCAL_ROUTES[@]}"; do
+            # Remove whitespace
+            route=$(echo "${route}" | xargs)
+            echo "PostUp = ip route add ${route} dev %i"
+        done
+        
+        # Runtime override: Set server_allowed_ips for peer handshake
+        # This changes what the server receives, but doesn't affect local routing (Table=off)
+        echo "PostUp = wg set %i peer ${PEER_PUBLIC_KEY} allowed-ips ${PEER_SERVER_ALLOWED_IPS}"
+        
+        bashio::log.info "Manual routing configured:"
+        bashio::log.info "  Local routes: ${PEER_ALLOWED_IPS}"
+        bashio::log.info "  Server will receive: ${PEER_SERVER_ALLOWED_IPS}"
+    fi
+
     echo ""
     echo "[Peer]"
     echo "PublicKey = ${PEER_PUBLIC_KEY}"
     echo "Endpoint = ${PEER_ENDPOINT}"
-    
-    # Use server_allowed_ips for WireGuard handshake if set, otherwise use allowed_ips
-    if [ -n "${PEER_SERVER_ALLOWED_IPS}" ]; then
-        echo "AllowedIPs = ${PEER_SERVER_ALLOWED_IPS}"
-    else
-        echo "AllowedIPs = ${PEER_ALLOWED_IPS}"
-    fi
-    
+    echo "AllowedIPs = ${PEER_ALLOWED_IPS}"
     echo "PersistentKeepalive = ${PEER_KEEPALIVE}"
     if [ -n "${PEER_PRESHARED_KEY}" ]; then
         echo "PresharedKey = ${PEER_PRESHARED_KEY}"
@@ -224,8 +247,9 @@ bashio::log.info "Endpoint: ${PEER_ENDPOINT}"
 bashio::log.info "Address: ${INTERFACE_ADDRESS}"
 
 if [ -n "${PEER_SERVER_ALLOWED_IPS}" ]; then
-    bashio::log.info "Server Allowed IPs: ${PEER_SERVER_ALLOWED_IPS}"
-    bashio::log.info "Local Allowed IPs: ${PEER_ALLOWED_IPS}"
+    bashio::log.info "Allowed IPs (local routing): ${PEER_ALLOWED_IPS}"
+    bashio::log.info "Allowed IPs (server handshake): ${PEER_SERVER_ALLOWED_IPS}"
+    bashio::log.info "Routing mode: manual (Table=off)"
 else
     bashio::log.info "Allowed IPs: ${PEER_ALLOWED_IPS}"
 fi
@@ -235,6 +259,9 @@ if [ -n "${INTERFACE_DNS}" ]; then
 fi
 if [ -n "${INTERFACE_MTU}" ]; then
     bashio::log.info "MTU: ${INTERFACE_MTU}"
+fi
+if [ -n "${INTERFACE_TABLE}" ]; then
+    bashio::log.info "Table: ${INTERFACE_TABLE}"
 fi
 if [ "${NAT_ENABLED}" = "true" ]; then
     bashio::log.info "NAT/Masquerading: enabled (interface: ${NAT_INTERFACE})"
@@ -263,29 +290,6 @@ fi
 
 bashio::log.info "WireGuard interface is up!"
 wg show "${WG_INTERFACE}"
-
-# If server_allowed_ips is set, manually configure local routes
-if [ -n "${PEER_SERVER_ALLOWED_IPS}" ]; then
-    bashio::log.info "Setting up local routes for: ${PEER_ALLOWED_IPS}"
-    
-    # Parse allowed_ips (can be comma-separated)
-    IFS=',' read -ra LOCAL_ROUTES <<< "${PEER_ALLOWED_IPS}"
-    for route in "${LOCAL_ROUTES[@]}"; do
-        # Remove whitespace
-        route=$(echo "${route}" | xargs)
-        
-        # Only add route if not already covered by server_allowed_ips
-        if ! echo "${PEER_SERVER_ALLOWED_IPS}" | grep -q "${route}"; then
-            if ip route add "${route}" dev "${WG_INTERFACE}" 2>/dev/null; then
-                bashio::log.info "Added local route: ${route} → ${WG_INTERFACE}"
-            else
-                bashio::log.debug "Route ${route} already exists or could not be added"
-            fi
-        else
-            bashio::log.debug "Route ${route} already covered by server_allowed_ips"
-        fi
-    done
-fi
 
 # ==============================================================================
 # Watchdog — monitor connection and auto-reconnect

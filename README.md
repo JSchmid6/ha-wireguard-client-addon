@@ -138,38 +138,84 @@ If `allowed_targets` is empty or omitted, all forwarding is allowed (legacy beha
 
 ### Asymmetric Routing with `server_allowed_ips`
 
-**Problem:** WireGuard has a design quirk where the client sends its `AllowedIPs` during the handshake, and the server **overwrites** its own config with those values. This prevents asymmetric routing scenarios where:
-- The **client** wants only the VPN subnet routed through the tunnel (to keep local LAN connectivity)
-- The **server** needs to route both the VPN subnet AND the client's LAN networks (to allow other VPN peers to reach the client's LAN)
+**Use Case:** You want the VPS server to route additional networks (e.g., your home LAN) through the WireGuard connection, BUT you want the Raspberry Pi to keep local LAN access direct (not through VPN).
 
-**Example Scenario:**
-- Raspberry Pi (client): wants `allowed_ips: 10.0.0.0/24` (keeps `192.168.1.0/24` local)
-- VPS (server): needs `AllowedIPs: 10.0.0.2/32, 192.168.1.0/24, 172.30.32.0/24` (to route smartphone traffic to Pi's LAN)
-- After handshake: VPS gets only `allowed ips: 10.0.0.2/32` ❌
-- Result: Smartphone cannot reach Pi's LAN networks!
+**Problem:** WireGuard's `allowed_ips` parameter has two coupled functions:
+1. **Creates automatic routing table entries** for all listed networks
+2. **Sends the values to the server** in the handshake (for server-side routing)
 
-**Solution:** Use the new `server_allowed_ips` parameter:
+If you set `allowed_ips: 10.0.0.0/24,192.168.1.0/24`, the Pi will route `192.168.1.0/24` through the VPN, **breaking local access**!
+
+**Solution:** Use `server_allowed_ips` parameter. The add-on will:
+- Set `Table=off` to disable automatic route creation
+- Manually add routes only for networks in `allowed_ips`
+- Use `wg set` to override the peer's AllowedIPs with `server_allowed_ips` for the handshake
+- Local LAN routes stay intact!
 
 ```yaml
 peer:
-  public_key: "SERVER_PUBLIC_KEY"
-  endpoint: "vpn.example.com:51820"
-  allowed_ips: "10.0.0.0/24"                                        # Local routing on client
-  server_allowed_ips: "10.0.0.0/24,192.168.1.0/24,172.30.32.0/24"  # Sent to server during handshake
-  persistent_keepalive: 25
+  allowed_ips: "10.0.0.0/24"                                       # Local routing (only VPN)
+  server_allowed_ips: "10.0.0.0/24,192.168.1.0/24,172.30.32.0/24" # Sent to server in handshake
 ```
 
 **How it works:**
-- `allowed_ips` — Used for local routing on the client (Pi)
-- `server_allowed_ips` — Sent to the server during the WireGuard handshake
-- The add-on automatically sets up manual routes for any networks in `allowed_ips` that aren't covered by `server_allowed_ips`
+- `allowed_ips` → Used for local routing on the Raspberry Pi
+- `server_allowed_ips` → Sent to server during WireGuard handshake
+- The add-on uses `Table=off` + manual routes to prevent automatic routing of LAN networks
+- Local LAN traffic stays on local interfaces (end0)
+- VPN traffic goes through wg0
 
-**When to use:**
-- You have multiple VPN peers (e.g. smartphone + Pi) on the same VPS
-- The smartphone needs to access the Pi's local networks through the VPN
-- You want to keep the Pi's local network connectivity intact
+**Example: Home Assistant with remote smartphone access**
 
-**Backward compatibility:** If `server_allowed_ips` is not set, the add-on behaves exactly as before (uses `allowed_ips` for everything).
+```
+Smartphone (10.0.0.3) ← VPN → VPS (10.0.0.1) ← VPN → RPi (10.0.0.2) → LAN (192.168.1.x)
+```
+
+Raspberry Pi Config:
+```yaml
+interface:
+  address: "10.0.0.2/24"
+  private_key: "..."
+peer:
+  public_key: "..."
+  endpoint: "vpn.example.com:51820"
+  allowed_ips: "10.0.0.0/24"
+  server_allowed_ips: "10.0.0.0/24,192.168.1.0/24,172.30.32.0/24"
+  persistent_keepalive: 25
+nat:
+  enabled: true
+  allowed_targets:
+    - "192.168.1.100"  # Home Assistant
+    - "192.168.1.185"  # IP Camera
+```
+
+VPS Server Config:
+```ini
+[Peer]
+PublicKey = <RASPBERRY_PI_PUBLIC_KEY>
+AllowedIPs = 10.0.0.2/32, 192.168.1.0/24, 172.30.32.0/24  # Will be set by client handshake
+```
+
+**Result:**
+- ✅ Raspberry Pi stays accessible from local network (192.168.1.x)
+- ✅ VPS can route smartphone traffic to LAN devices through RPi
+- ✅ Home Assistant supervisor connection stays intact
+
+**Technical Details:**
+The generated WireGuard config will include:
+```ini
+[Interface]
+Table = off
+PostUp = ip route add 10.0.0.0/24 dev %i
+PostUp = wg set %i peer <PUBLIC_KEY> allowed-ips 10.0.0.0/24,192.168.1.0/24,172.30.32.0/24
+
+[Peer]
+AllowedIPs = 10.0.0.0/24
+```
+
+This ensures only the VPN network (10.0.0.0/24) is routed through wg0, while the server receives the full network list for routing.
+
+**Backward compatibility:** If `server_allowed_ips` is not set, the add-on behaves exactly as before (standard WireGuard routing).
 
 ### Port Forwarding (LAN → VPN)
 
